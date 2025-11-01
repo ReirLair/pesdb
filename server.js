@@ -19,10 +19,10 @@ async function scrapePlayers(playerName) {
     const playerAnchor = $(el).find("td").eq(1).find("a");
     const name = playerAnchor.text().trim();
 
+    // Extract only the player ID from href (e.g., id=89133456301399)
     const hrefRaw = playerAnchor.attr("href") || "";
-    const href = hrefRaw.startsWith("http")
-      ? hrefRaw
-      : baseUrl + hrefRaw.replace("./", "");
+    const idMatch = hrefRaw.match(/id=(\d+)/);
+    const id = idMatch ? idMatch[1] : null;
 
     const teamName = $(el).find("td").eq(2).text().trim();
     const nationality = $(el).find("td").eq(3).text().trim();
@@ -36,7 +36,7 @@ async function scrapePlayers(playerName) {
       nationality,
       age,
       rating,
-      href,
+      id
     });
   });
 
@@ -55,5 +55,4 @@ app.get("/api/player", async (req, res) => {
   }
 });
 
-// Vercel expects this:
 export default app;
