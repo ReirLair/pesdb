@@ -5,6 +5,47 @@ import * as cheerio from "cheerio";
 const app = express();
 const BASE_URL = "https://pesdb.net/efootball/";
 
+/* ==========================================
+   🔍 Scrape list of players by name
+========================================== */
+async function scrapePlayers(playerName) {
+  const url = `${BASE_URL}?name=${encodeURIComponent(playerName)}&mode=max_level&all=1`;
+  const { data } = await axios.get(url);
+  const $ = cheerio.load(data);
+  const players = [];
+
+  $("table.players tbody tr").each((i, el) => {
+    if ($(el).find("th").length) return;
+
+    const position = $(el).find("td").eq(0).text().trim();
+    const playerAnchor = $(el).find("td").eq(1).find("a");
+    const name = playerAnchor.text().trim();
+    const hrefRaw = playerAnchor.attr("href") || "";
+    const idMatch = hrefRaw.match(/id=(\d+)/);
+    const id = idMatch ? idMatch[1] : null;
+
+    const teamName = $(el).find("td").eq(2).text().trim();
+    const nationality = $(el).find("td").eq(3).text().trim();
+    const age = $(el).find("td").eq(6).text().trim();
+    const rating = $(el).find("td").eq(7).text().trim();
+
+    players.push({
+      playerName: name,
+      position,
+      teamName,
+      nationality,
+      age,
+      rating,
+      id,
+    });
+  });
+
+  return players;
+}
+
+/* ==========================================
+   🧠 Scrape detailed player info by ID
+========================================== */
 async function scrapePlayerInfo(id) {
   const url = `${BASE_URL}?id=${id}&mode=max_level`;
   const { data } = await axios.get(url);
@@ -12,11 +53,11 @@ async function scrapePlayerInfo(id) {
 
   const info = {};
 
-  // Basic info
+  // 🖼️ Images
   info.imageFront = $(".flip-box-front img").attr("src") || null;
   info.imageBack = $(".flip-box-back img").attr("src") || null;
 
-  // Loop through info table instead of hardcoding
+  // 📋 Basic details
   $("table.player table")
     .first()
     .find("tr")
@@ -28,45 +69,46 @@ async function scrapePlayerInfo(id) {
       const key = th
         .replace(/\s+/g, "")
         .replace(/[^a-zA-Z]/g, "")
-        .toLowerCase(); // normalize keys
+        .toLowerCase();
       info[key] = td;
     });
 
-  // Extract rarity (Epic, Legendary, etc.)
+  // 🌟 Rarity
   info.rarity =
     $("td[colspan='2']:contains('Epic'), td[colspan='2']:contains('Legendary')")
       .text()
       .trim() || null;
 
-  // Rating sometimes has "B(+15) 103" format → cleanly split
-  if (info.rating) {
-    info.rating = info.rating.replace(/\s+/g, " ").trim();
-  }
+  // 🎯 Rating cleanup
+  if (info.rating) info.rating = info.rating.replace(/\s+/g, " ").trim();
 
-  // Attributes table
+  // 📊 Attributes
   info.attributes = [];
   $("table[data-style] tr").each((_, tr) => {
     const statName = $(tr).find("th").text().replace(":", "").trim();
     if (!statName) return;
 
     const booster = $(tr).find("span[title*='Booster']").attr("title") || null;
-    const smallBonus = $(tr).find("small").text().trim() || null;
-    const value = $(tr).find("span[id^='a']").text().trim() || $(tr).find("td span.c0").text().trim();
+    const bonus = $(tr).find("small").text().trim() || null;
+    const value =
+      $(tr).find("span[id^='a']").text().trim() ||
+      $(tr).find("td span.c0").text().trim();
 
     if (value) {
       info.attributes.push({
         statName,
         value,
         booster: booster ? booster.replace("Booster ", "") : null,
-        bonus: smallBonus || null,
+        bonus: bonus || null,
       });
     }
   });
 
-  // Playing Style
-  info.playingStyle = $("table.playing_styles tr:nth-child(2)").text().trim() || null;
+  // ⚙️ Playing Style
+  info.playingStyle =
+    $("table.playing_styles tr:nth-child(2)").text().trim() || null;
 
-  // Player Skills
+  // 🧩 Player Skills
   info.playerSkills = [];
   let collectingSkills = false;
   $("table.playing_styles tr").each((_, el) => {
@@ -85,7 +127,7 @@ async function scrapePlayerInfo(id) {
     }
   });
 
-  // AI Playing Styles
+  // 🤖 AI Playing Styles
   info.aiPlayingStyles = [];
   $("table.playing_styles tr:contains('AI Playing Styles')")
     .nextAll()
@@ -98,13 +140,45 @@ async function scrapePlayerInfo(id) {
   return info;
 }
 
+/* ==========================================
+   🚀 Routes
+========================================== */
+
+// 🔍 Search for players
+app.get("/api/player", async (req, res) => {
+  try {
+    const { name } = req.query;
+    if (!name)
+      return res
+        .status(400)
+        .json({ success: false, error: "Missing ?name parameter" });
+
+    const players = await scrapePlayers(name);
+    res.status(200).json({
+      success: true,
+      count: players.length,
+      players,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 🧠 Get player info by ID
 app.get("/api/playerinfo", async (req, res) => {
   try {
     const { id } = req.query;
-    if (!id) return res.status(400).json({ error: "Missing ?id parameter" });
+    if (!id)
+      return res
+        .status(400)
+        .json({ success: false, error: "Missing ?id parameter" });
 
     const info = await scrapePlayerInfo(id);
-    res.json({ success: true, id, info });
+    res.status(200).json({
+      success: true,
+      id,
+      info,
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
